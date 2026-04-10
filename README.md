@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # PRAWO.GRAPH — Grafowe Powiązania Aktów Prawnych
 
 Aplikacja wizualizuje powiązania między polskimi aktami prawnymi (Dziennik Ustaw RP) przy użyciu bazy grafowej Neo4j, backendu FastAPI i frontendu React + Cytoscape.js.
@@ -252,6 +251,3 @@ Dane aktów prawnych pobierane są z publicznego API Sejmu RP (ELI):
 - https://isap.sejm.gov.pl
 
 Dane są dostępne na licencji otwartych danych — [Warunki korzystania z danych Sejmu RP](https://www.sejm.gov.pl/Sejm10.nsf/page.xsp?id=warunki_korzystania).
-=======
-# prawo-graph
->>>>>>> 3c5e1d0d24336cf1540f9ea27f922cc1e8d7eacb

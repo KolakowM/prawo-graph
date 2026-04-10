@@ -122,3 +122,19 @@
   background: var(--border);
   margin: 2px 0;
 }
+
+/* ── Cache UI ──────────────────────────────── */
+.cache-badge {
+  font-size: 10px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.cache-btn {
+  border-color: #ef444455;
+  color: #ef4444aa;
+}
+.cache-btn:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}

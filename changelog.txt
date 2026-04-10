@@ -48,3 +48,27 @@ KOLEJNE KROKI (TODO):
   - [ ] Podłączyć Neo4j AuraDB (credentials w Render Environment Variables)
   - [ ] Uruchomić ETL przez panel Statystyki po podłączeniu bazy
   - [ ] Dodać autentykację do endpointu /api/etl/run
+
+[2026-04-10] v0.1.3 — Cache localStorage + naprawa 504
+--------------------------------------------------------
+PROBLEM 504: Backend na Render (darmowy plan) "zasypia" po 15min
+  bezczynności. Pierwsze żądanie budzi go ~30s → timeout w przeglądarce.
+
+NAPRAWIONO / DODANO:
+  - frontend/src/cache.js (NOWY PLIK):
+    * Zapisuje dane grafu w localStorage z TTL 30 minut
+    * Przy kolejnych odwiedzinach graf ładuje się natychmiast z cache
+    * Funkcje: saveToCache, loadFromCache, clearCache, getCacheInfo
+  - frontend/src/components/LawGraph.jsx:
+    * Integracja z cache.js — najpierw sprawdza localStorage
+    * Wskaźnik "📦 z cache" gdy dane pochodzą z pamięci
+    * Przycisk "🗑 Cache (XKB)" — czyści cache i wymusza odświeżenie
+    * Przycisk "⟳ Odśwież" — pobiera świeże dane z API (force refresh)
+    * Lepsze komunikaty błędów (pokazuje kod HTTP)
+
+WAŻNE — sprawdź na GitHub czy te pliki są aktualne:
+  ✓ netlify.toml — musi mieć regułę [[redirects]] /api/* → Render
+  ✓ frontend/src/api.js — musi eksportować: export const API_BASE = "/api"
+  ✓ backend/requirements.txt — musi mieć >= zamiast ==
+  ✓ frontend/src/cache.js — NOWY plik, musi być w repo
+  ✓ W Netlify ENV — usuń VITE_API_BASE jeśli istnieje

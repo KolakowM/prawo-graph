@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import "./StatsPanel.css";
 
-const API_BASE = "/api";
+import { API_BASE } from "../api.js";
 
 export default function StatsPanel() {
   const [stats, setStats] = useState(null);
