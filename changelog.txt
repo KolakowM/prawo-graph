@@ -1,0 +1,50 @@
+PRAWO.GRAPH — Dziennik zmian (CHANGELOG)
+=========================================
+
+[2026-04-10] v0.1.0 — Wersja inicjalna
+----------------------------------------
+DODANO:
+  - docker-compose.yml: Neo4j 5.18 + backend FastAPI + frontend React
+  - backend/etl_sejm.py: Skrypt ETL pobierający akty z API Sejmu (ELI)
+    * Filtrowanie po słowach kluczowych (przedsiębiorczość, ustawa wilczka)
+    * Rate-limiting: asyncio.sleep(0.35s) + exponential backoff przy HTTP 429
+    * Zapis węzłów :Act i relacji CHANGES/REPEALS/EXECUTES do Neo4j
+  - backend/main.py: FastAPI z endpointami:
+    * GET /api/graph — graf w formacie Cytoscape.js
+    * GET /api/stats — statystyki bazy
+    * GET /api/keywords — słowa kluczowe
+    * GET /api/neighbors — sąsiedzi węzła
+    * POST /api/etl/run — uruchomienie ETL w tle
+  - frontend: React + Cytoscape.js (cose-bilkent layout)
+    * LawGraph.jsx — wizualizacja grafu z legendą i toolbar
+    * Sidebar.jsx — panel szczegółów aktu po kliknięciu węzła
+    * StatsPanel.jsx — statystyki + trigger ETL z przeglądarki
+    * Header.jsx — filtry (rok, status, słowo kluczowe)
+  - README.md: Instrukcja uruchomienia lokalnie i przez Docker
+
+[2026-04-10] v0.1.1 — Naprawa deploymentu na Render
+------------------------------------------------------
+NAPRAWIONO:
+  - backend/requirements.txt: Usunięto sztywne pinowanie wersji (==)
+    na rzecz dolnych granic (>=), co pozwala pip dobrać gotowe
+    binarne koła dla Python 3.14 na Render
+    * Poprzednio: pydantic==2.7.1 wymagało kompilacji Rust → błąd build
+    * Teraz: pydantic>=2.7.1 pobiera pydantic 2.12.5 z gotowym kołem
+
+[2026-04-10] v0.1.2 — Naprawa proxy API na Netlify
+----------------------------------------------------
+PROBLEM: Frontend wywoływał /api/graph na domenie Netlify zamiast Render
+  * Błąd w konsoli: GET https://prawo-graph.netlify.app/api/graph 404
+
+NAPRAWIONO:
+  - netlify.toml: Dodano regułę proxy przekierowującą ruch API:
+      /api/* → https://prawo-graph.onrender.com/api/:splat (status 200)
+  - frontend/src/api.js: Uproszczono — zawsze używa "/api" (przez proxy)
+    * Usunięto zależność od zmiennej VITE_API_BASE
+  - WAŻNE: Usuń zmienną VITE_API_BASE z Netlify Environment Variables
+    jeśli była ustawiona — powoduje ominięcie proxy i błędy CORS
+
+KOLEJNE KROKI (TODO):
+  - [ ] Podłączyć Neo4j AuraDB (credentials w Render Environment Variables)
+  - [ ] Uruchomić ETL przez panel Statystyki po podłączeniu bazy
+  - [ ] Dodać autentykację do endpointu /api/etl/run
