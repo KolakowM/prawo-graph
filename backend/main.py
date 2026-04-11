@@ -295,16 +295,30 @@ async def _run_etl_async(years: list):
             for yr in years:
                 etl.update(current_year=yr)
                 data = await _api_get(client, f"{BASE_URL}/acts/{PUBLISHER}/{yr}")
-                items = data.get("items", []) if isinstance(data, dict) else []
+
+                # API Sejmu może zwracać płaską listę LUB {"items": [...]}
+                if isinstance(data, list):
+                    items = data
+                elif isinstance(data, dict):
+                    items = data.get("items", data.get("acts", []))
+                    if not items:
+                        etl.add_log(f"  ! {yr}: niezrozumiała odpowiedź API: {list(data.keys())}", "warn")
+                else:
+                    items = []
+                    etl.add_log(f"  ! {yr}: pusta odpowiedź API (typ: {type(data).__name__})", "warn")
+
+                etl.add_log(f"  → {yr}: API zwróciło {len(items)} rekordów")
+
                 yr_matched = 0
                 for act in items:
                     etl.acts_scanned += 1
                     if _matches(act):
-                        act_yr  = int(act.get("year") or str(yr))
+                        act_yr  = int(act.get("year") or yr)
                         act_pos = int(act.get("pos") or act.get("position") or 0)
-                        matched.append({"year": act_yr, "pos": act_pos, "raw": act})
-                        etl.acts_found += 1
-                        yr_matched += 1
+                        if act_pos > 0:
+                            matched.append({"year": act_yr, "pos": act_pos, "raw": act})
+                            etl.acts_found += 1
+                            yr_matched += 1
                 etl.years_done += 1
                 etl.update(acts_total=len(matched))
                 etl.add_log(f"  ✓ {yr}: {len(items)} aktów → {yr_matched} pasuje", "success" if yr_matched else "info")
@@ -445,6 +459,45 @@ async def etl_stream():
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
+
+
+@app.get("/api/etl/diagnose")
+async def etl_diagnose(year: int = 2023):
+    """Diagnostyka — sprawdza co dokładnie zwraca API Sejmu dla danego roku."""
+    async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
+        try:
+            url = f"{BASE_URL}/acts/{PUBLISHER}/{year}"
+            resp = await client.get(url)
+            raw = resp.json()
+
+            info = {
+                "url":          url,
+                "http_status":  resp.status_code,
+                "response_type": type(raw).__name__,
+            }
+
+            if isinstance(raw, list):
+                info["count"]      = len(raw)
+                info["sample"]     = raw[:2] if raw else []
+                info["first_keys"] = list(raw[0].keys()) if raw else []
+                items = raw
+            elif isinstance(raw, dict):
+                info["top_keys"]   = list(raw.keys())
+                items = raw.get("items", raw.get("acts", []))
+                info["items_count"]= len(items)
+                info["sample"]     = items[:2]
+            else:
+                info["raw"] = str(raw)[:500]
+                items = []
+
+            # Test filtrowania
+            matched = [a for a in items if _matches(a)]
+            info["filter_matched"] = len(matched)
+            info["filter_keywords"] = FILTER_KEYWORDS
+
+            return info
+        except Exception as e:
+            return {"error": str(e), "url": f"{BASE_URL}/acts/{PUBLISHER}/{year}"}
 
 
 @app.get("/health")
