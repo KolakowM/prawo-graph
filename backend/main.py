@@ -23,7 +23,7 @@ NEO4J_URI  = os.getenv("NEO4J_URI",      "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER",     "neo4j")
 NEO4J_PASS = os.getenv("NEO4J_PASSWORD", "sejm_password")
 BASE_URL   = "https://api.sejm.gov.pl/eli"
-PUBLISHER  = "WDU"
+PUBLISHER  = "DU"
 REQ_DELAY  = 0.4
 
 FILTER_KEYWORDS = [
@@ -33,7 +33,21 @@ FILTER_KEYWORDS = [
     "spółka", "koncesja", "zezwolenie gospodarcze",
 ]
 
+# API Sejmu zwraca referencje jako słownik z POLSKIMI kluczami
 REF_TYPE_MAP = {
+    # Polskie klucze z API
+    "Akty zmieniające":          "CHANGES",
+    "Akty zmienione":            "CHANGED_BY",
+    "Akty uchylające":           "REPEALS",
+    "Akty uchylone":             "REPEALED_BY",
+    "Podstawa prawna":           "EXECUTES",
+    "Podstawa prawna z art.":    "EXECUTES",
+    "Akty wykonawcze":           "EXECUTES",
+    "Akty wykonawcze z art.":    "EXECUTES",
+    "Tekst jednolity dla aktu":  "CONSOLIDATES",
+    "Przepisy wprowadzane":      "INTRODUCES",
+    "Przepisy wprowadzające":    "INTRODUCED_BY",
+    # Angielskie (fallback)
     "CHANGES": "CHANGES", "AMENDS": "CHANGES",
     "REPEALS": "REPEALS", "REPEALED_BY": "REPEALED_BY",
     "EXECUTES": "EXECUTES", "IMPLEMENTS": "EXECUTES",
@@ -290,27 +304,38 @@ async def _run_etl_async(years: list):
     try:
         async with httpx.AsyncClient(follow_redirects=True) as client:
 
-            # Faza 1: skanowanie
-            etl.add_log("📋 Faza 1: Skanowanie list aktów…")
+            # Faza 1: skanowanie z paginacją
+            etl.add_log("📋 Faza 1: Skanowanie list aktów (z paginacją)…")
             for yr in years:
                 etl.update(current_year=yr)
-                data = await _api_get(client, f"{BASE_URL}/acts/{PUBLISHER}/{yr}")
+                offset = 0
+                limit  = 100
+                total_count = None
+                yr_items = []
 
-                # API Sejmu może zwracać płaską listę LUB {"items": [...]}
-                if isinstance(data, list):
-                    items = data
-                elif isinstance(data, dict):
-                    items = data.get("items", data.get("acts", []))
-                    if not items:
-                        etl.add_log(f"  ! {yr}: niezrozumiała odpowiedź API: {list(data.keys())}", "warn")
-                else:
-                    items = []
-                    etl.add_log(f"  ! {yr}: pusta odpowiedź API (typ: {type(data).__name__})", "warn")
+                while True:
+                    url  = f"{BASE_URL}/acts/{PUBLISHER}/{yr}?limit={limit}&offset={offset}"
+                    data = await _api_get(client, url)
 
-                etl.add_log(f"  → {yr}: API zwróciło {len(items)} rekordów")
+                    if isinstance(data, list):
+                        # odpowiedź bez paginacji — płaska lista
+                        yr_items.extend(data)
+                        total_count = len(yr_items)
+                        break
+                    elif isinstance(data, dict):
+                        items_page = data.get("items", [])
+                        yr_items.extend(items_page)
+                        total_count = data.get("totalCount", data.get("count", len(yr_items)))
+                        etl.add_log(f"  → {yr}: strona offset={offset}, pobrano {len(yr_items)}/{total_count}")
+                        if len(yr_items) >= total_count or not items_page:
+                            break
+                        offset += limit
+                    else:
+                        etl.add_log(f"  ! {yr}: nieoczekiwana odpowiedź (typ: {type(data).__name__})", "warn")
+                        break
 
                 yr_matched = 0
-                for act in items:
+                for act in yr_items:
                     etl.acts_scanned += 1
                     if _matches(act):
                         act_yr  = int(act.get("year") or yr)
@@ -321,7 +346,10 @@ async def _run_etl_async(years: list):
                             yr_matched += 1
                 etl.years_done += 1
                 etl.update(acts_total=len(matched))
-                etl.add_log(f"  ✓ {yr}: {len(items)} aktów → {yr_matched} pasuje", "success" if yr_matched else "info")
+                etl.add_log(
+                    f"  ✓ {yr}: {len(yr_items)} aktów → {yr_matched} pasuje",
+                    "success" if yr_matched else "info"
+                )
 
             etl.add_log(f"✅ Skanowanie gotowe — {len(matched)} aktów do importu", "success")
 
@@ -355,15 +383,38 @@ async def _run_etl_async(years: list):
                 etl.acts_saved += 1
 
                 refs_data = await _api_get(client, f"{BASE_URL}/acts/{PUBLISHER}/{yr}/{pos}/references")
-                refs_list = refs_data if isinstance(refs_data, list) else (refs_data or {}).get("items", [])
-                for ref in refs_list:
-                    rtype = REF_TYPE_MAP.get((ref.get("type") or "").upper(), "REFERENCES")
-                    rpub  = ref.get("publisher") or PUBLISHER
-                    ryr   = ref.get("year")
-                    rpos  = ref.get("pos") or ref.get("position")
-                    if ryr and rpos:
-                        all_refs.append((act_id, f"{rpub}/{ryr}/{rpos}", rtype))
-                        etl.refs_total += 1
+                # API zwraca słownik: {"Akty zmieniające": [{act: {...}}, ...], ...}
+                if isinstance(refs_data, dict):
+                    for cat_name, ref_list in refs_data.items():
+                        rtype = REF_TYPE_MAP.get(cat_name, "REFERENCES")
+                        if not isinstance(ref_list, list):
+                            continue
+                        for ref_item in ref_list:
+                            # ref_item to {"act": {...}, "art": "..."} lub bezpośrednio akt
+                            ref_act = ref_item.get("act", ref_item) if isinstance(ref_item, dict) else {}
+                            eli    = ref_act.get("ELI") or ref_act.get("eli")
+                            ryr    = ref_act.get("year")
+                            rpos   = ref_act.get("pos") or ref_act.get("position")
+                            rpub   = ref_act.get("publisher") or PUBLISHER
+                            if eli:
+                                # ELI format: np. "DU/2023/42" lub pełne URI
+                                parts = eli.rstrip("/").split("/")
+                                to_id = f"{parts[-3]}/{parts[-2]}/{parts[-1]}" if len(parts) >= 3 else eli
+                                all_refs.append((act_id, to_id, rtype))
+                                etl.refs_total += 1
+                            elif ryr and rpos:
+                                all_refs.append((act_id, f"{rpub}/{ryr}/{rpos}", rtype))
+                                etl.refs_total += 1
+                elif isinstance(refs_data, list):
+                    # Fallback: płaska lista
+                    for ref in refs_data:
+                        rtype = REF_TYPE_MAP.get((ref.get("type") or "").upper(), "REFERENCES")
+                        ryr   = ref.get("year")
+                        rpos  = ref.get("pos") or ref.get("position")
+                        rpub  = ref.get("publisher") or PUBLISHER
+                        if ryr and rpos:
+                            all_refs.append((act_id, f"{rpub}/{ryr}/{rpos}", rtype))
+                            etl.refs_total += 1
 
                 if i % 10 == 0 or i == len(matched):
                     etl.add_log(f"  [{i}/{len(matched)}] zapisano {etl.acts_saved}, ref: {etl.refs_total}")
@@ -466,7 +517,7 @@ async def etl_diagnose(year: int = 2023):
     """Diagnostyka — sprawdza co dokładnie zwraca API Sejmu dla danego roku."""
     async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
         try:
-            url = f"{BASE_URL}/acts/{PUBLISHER}/{year}"
+            url = f"{BASE_URL}/acts/{PUBLISHER}/{year}?limit=5&offset=0"
             resp = await client.get(url)
             raw = resp.json()
 
