@@ -119,3 +119,38 @@ NAPRAWIONO:
       - typ danych, liczba rekordów, klucze, sample 2 aktów
       - ile aktów pasuje do filtrów
       - użyj do debugowania gdy ETL zwraca 0 aktów
+
+[2026-04-11] v0.2.2 — Krytyczne naprawy ETL (na podstawie analizy projektu poland-legal-links)
+------------------------------------------------------------------------------------------------
+ANALIZA ZEWNĘTRZNEGO PROJEKTU: Porównanie z poland-legal-links ujawniło
+3 krytyczne błędy które powodowały 0 aktów w ETL.
+
+BŁĄD 1 — Zły kod wydawcy:
+  Było:   PUBLISHER = "WDU"
+  Było:   PUBLISHER = "DU"     ← POPRAWIONE
+  Wniosek: API Sejmu używa "DU" (Dziennik Ustaw), nie "WDU"
+
+BŁĄD 2 — Brak paginacji:
+  Było:   jedno żądanie na rok (zwracało tylko pierwsze N aktów)
+  Teraz:  pętla while z limit=100&offset=N aż do totalCount
+  Wniosek: rok 2023 ma ~2800 aktów — bez paginacji widzieliśmy ~100
+
+BŁĄD 3 — Zły format referencji:
+  Było:   oczekiwano listy [{type: "CHANGES", year: N, pos: N}]
+  Teraz:  słownik z polskimi kluczami:
+          {"Akty zmieniające": [{act: {ELI: "DU/..."}}], "Akty uchylające": [...]}
+  Dodano: pełne mapowanie polskich kategorii → typy relacji Neo4j:
+          "Akty zmieniające"       → CHANGES
+          "Akty zmienione"         → CHANGED_BY
+          "Akty uchylające"        → REPEALS
+          "Akty uchylone"          → REPEALED_BY
+          "Podstawa prawna"        → EXECUTES
+          "Akty wykonawcze"        → EXECUTES
+          "Tekst jednolity"        → CONSOLIDATES
+          "Przepisy wprowadzające" → INTRODUCED_BY
+
+DODANO Z ZEWNĘTRZNEGO PROJEKTU:
+  - Obsługa pola ELI jako głównego identyfikatora aktu
+  - Lepszy EDGE_TYPE_MAP z polskimi etykietami
+  - Paginacja identyczna jak w poland-legal-links (limit=100, offset)
+  - Diagnoza endpointu: /api/etl/diagnose?year=2023
