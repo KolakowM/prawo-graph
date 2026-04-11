@@ -100,3 +100,22 @@ DODANO:
 
 ZNANE OGRANICZENIE: SSE działa tylko gdy backend jest aktywny.
 Przy zimnym starcie Render (504) trzeba odczekać ~30s i odświeżyć.
+
+[2026-04-11] v0.2.1 — Naprawa parsowania odpowiedzi API Sejmu
+--------------------------------------------------------------
+PROBLEM: ETL kończył się z 0 aktów — API Sejmu zwracało dane ale
+kod oczekiwał {"items": [...]} podczas gdy API zwraca płaską listę [].
+
+NAPRAWIONO:
+  backend/main.py:
+    * Faza 1 ETL: obsługa obu formatów odpowiedzi:
+      - płaska lista [act, act, ...] (rzeczywisty format API)
+      - obiekt {"items": [...]} (poprzednie założenie)
+    * Dodano logowanie typu odpowiedzi ("API zwróciło N rekordów")
+    * Dodano ostrzeżenia gdy odpowiedź jest nieoczekiwanego typu
+    * Dodano walidację act_pos > 0 przed dodaniem do matched
+    * Nowy endpoint GET /api/etl/diagnose?year=2023:
+      - pokazuje surową odpowiedź API dla danego roku
+      - typ danych, liczba rekordów, klucze, sample 2 aktów
+      - ile aktów pasuje do filtrów
+      - użyj do debugowania gdy ETL zwraca 0 aktów
