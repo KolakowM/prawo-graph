@@ -72,3 +72,31 @@ WAŻNE — sprawdź na GitHub czy te pliki są aktualne:
   ✓ backend/requirements.txt — musi mieć >= zamiast ==
   ✓ frontend/src/cache.js — NOWY plik, musi być w repo
   ✓ W Netlify ENV — usuń VITE_API_BASE jeśli istnieje
+
+[2026-04-11] v0.2.0 — Live ETL Dashboard (Server-Sent Events)
+--------------------------------------------------------------
+PROBLEM: ETL działał w tle bez żadnej informacji zwrotnej — nie było
+widać czy coś się dzieje, ile aktów pobrano, czy wystąpiły błędy.
+
+DODANO:
+  backend/main.py (przepisany):
+    * Klasa EtlState — śledzi każdy etap w czasie rzeczywistym:
+      acts_scanned, acts_found, acts_saved, refs_total, refs_saved,
+      api_calls, api_errors, rate_limited, current_act, elapsed_s
+    * GET /api/etl/stream — endpoint Server-Sent Events (SSE)
+      strumieniuje zdarzenia: start, progress, log, done
+    * Wewnętrzny ETL async (zamiast subprocess) — lepsza kontrola
+    * /health zwraca teraz również liczbę aktów w Neo4j
+
+  frontend/src/components/StatsPanel.jsx (przepisany):
+    * EventSource połączony z /api/etl/stream — live updates
+    * Siatka metryk (7 kart): lata, przeskanowano, pasuje,
+      zapisano, relacje, żądania API, rate-limit
+    * 3 paski postępu: lata / akty / relacje (animowane)
+    * Live log z kolorowaniem: success=zielony, warn=żółty, error=czerwony
+    * Auto-scroll logu do najnowszych wpisów
+    * Licznik czasu (elapsed) w czasie rzeczywistym
+    * Statystyki bazy Neo4j (karty + wykresy słupkowe)
+
+ZNANE OGRANICZENIE: SSE działa tylko gdy backend jest aktywny.
+Przy zimnym starcie Render (504) trzeba odczekać ~30s i odświeżyć.
