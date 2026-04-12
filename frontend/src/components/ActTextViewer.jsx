@@ -7,6 +7,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import "./ActTextViewer.css";
+import NavMap from "./NavMap.jsx";
 
 const ELI_BASE = "https://api.sejm.gov.pl/eli/acts/DU";
 
@@ -140,45 +141,25 @@ export default function ActTextViewer({ act, onClose, onNavigate }) {
   const goBack = () => { if (histIdx > 0) setHistIdx(i => i - 1); };
   const goFwd  = () => { if (histIdx < history.length - 1) setHistIdx(i => i + 1); };
 
+  const handleJump = (i) => setHistIdx(i);
+
   return (
     <div className="atv-overlay">
       <div className="atv-panel">
 
         {/* Nagłówek */}
         <div className="atv-header">
-          <div className="atv-nav">
-            <button
-              className="atv-nav-btn"
-              onClick={goBack}
-              disabled={histIdx === 0}
-              title="Poprzedni akt"
-            >←</button>
-            <button
-              className="atv-nav-btn"
-              onClick={goFwd}
-              disabled={histIdx >= history.length - 1}
-              title="Następny akt"
-            >→</button>
-          </div>
-
           <div className="atv-title-block">
             <div className="atv-title">
               {currentAct.title || `Dz. U. ${currentAct.year} poz. ${currentAct.pos}`}
             </div>
-            <div className="atv-subtitle">
-              {history.length > 1 && (
-                <span className="atv-breadcrumb">
-                  {history.slice(0, histIdx + 1).map((a, i) => (
-                    <span key={i}>
-                      {i > 0 && <span className="atv-arrow"> → </span>}
-                      <button
-                        className="atv-crumb-btn"
-                        onClick={() => setHistIdx(i)}
-                      >
-                        {a.year}/{a.pos}
-                      </button>
-                    </span>
-                  ))}
+            <div className="atv-meta-row">
+              <span className="atv-ref-tag">
+                DU/{currentAct.year}/{currentAct.pos}
+              </span>
+              {currentAct.status && currentAct.status !== "UNKNOWN" && (
+                <span className={`atv-status atv-status-${currentAct.status === "obowiązujący" ? "ok" : "off"}`}>
+                  {currentAct.status}
                 </span>
               )}
             </div>
@@ -189,17 +170,22 @@ export default function ActTextViewer({ act, onClose, onNavigate }) {
               href={`https://isap.sejm.gov.pl/isap.nsf/DocDetails.xsp?id=WDU${currentAct.year}${String(currentAct.pos).padStart(7,"0")}`}
               target="_blank" rel="noopener noreferrer"
               className="atv-ext-link"
-              title="Otwórz w ISAP"
             >↗ ISAP</a>
             <a
               href={`https://isap.sejm.gov.pl/isap.nsf/download.xsp/WDU${currentAct.year}${String(currentAct.pos).padStart(7,"0")}/O/D${currentAct.year}${currentAct.pos}.pdf`}
               target="_blank" rel="noopener noreferrer"
               className="atv-ext-link"
-              title="Pobierz PDF"
             >↓ PDF</a>
             <button className="atv-close-btn" onClick={onClose} title="Zamknij czytnik">✕</button>
           </div>
         </div>
+
+        {/* Mapa nawigacji */}
+        <NavMap
+          history={history}
+          currentIdx={histIdx}
+          onJump={handleJump}
+        />
 
         {/* Treść aktu */}
         <div className="atv-body">
