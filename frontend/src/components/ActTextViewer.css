@@ -252,3 +252,34 @@
   opacity: 0.6;
   font-family: var(--font-mono);
 }
+
+/* ── Header meta row ─────────────────── */
+.atv-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.atv-ref-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 2px;
+}
+
+.atv-status {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: 2px;
+  border: 1px solid;
+}
+
+.atv-status-ok  { color: var(--green);  border-color: var(--green);  background: rgba(34,197,94,.08); }
+.atv-status-off { color: var(--red);    border-color: var(--red);    background: rgba(239,68,68,.08); }
