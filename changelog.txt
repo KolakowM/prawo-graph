@@ -190,3 +190,35 @@ DODANO:
   - _flush_acts(list) — batch UNWIND dla węzłów
   - _flush_refs(list, set) — batch UNWIND dla relacji per typ
   - pickLayout(nodeCount) — adaptacyjny wybór szybkiego vs animowanego layoutu
+
+[2026-04-11] v0.4.0 — Czytnik aktów prawnych + poprawki linków
+---------------------------------------------------------------
+NOWE FUNKCJE:
+
+  ActTextViewer.jsx (NOWY KOMPONENT):
+    * Panel nakładkowy otwierany przyciskiem "📖 Czytaj tekst aktu"
+    * Pobiera pełny tekst HTML aktu z ELI API: /acts/DU/{year}/{pos}/text.html
+    * Parser regex wzorców "Dz. U. z YYYY r. poz. NNNN" — wszystkie odesłania
+      w tekście aktu stają się klikalne (podświetlone na żółto)
+    * Kliknięcie odesłania → otwiera cytowany akt w tym samym czytniku
+    * Historia nawigacji (← →) z breadcrumbami
+    * Linki do ISAP i PDF w nagłówku czytnika
+    * Obsługa błędów gdy tekst niedostępny w ELI (starsze akty)
+
+  Sidebar.jsx — 3 poprawki błędów linków:
+    * ISAP URL: padStart(7) zamiast (4) — WDU20200002183 zamiast WDU20202183
+    * PDF URL: https://isap.sejm.gov.pl/isap.nsf/download.xsp/WDU{year}{pos:07d}/O/D{year}{pos}.pdf
+    * ELI text URL: DU zamiast WDU — /acts/DU/{year}/{pos}/text.html
+
+  Sidebar.jsx — legenda typów relacji:
+    * Opis każdego typu relacji (CHANGES, REPEALS, EXECUTES, itd.)
+    * Widoczna zarówno gdy wybrany akt jak i w pustym stanie panelu
+
+  App.jsx:
+    * Integracja ActTextViewer — prop onReadAct przekazany do Sidebar
+    * onNavigate — kliknięcie odesłania w czytniku zaznacza węzeł w grafie
+
+ODPOWIEDŹ NA PYTANIE UŻYTKOWNIKA:
+  "Chciałem takie narzędzie które pomoże mi zrozumieć czytany akt prawny i widzieć
+  relacje np. zapis (Dz. U. z 2019 r. poz. 2407) — chciałbym móc przejść i przeczytać"
+  → Zrealizowane przez ActTextViewer z parserem odesłań
