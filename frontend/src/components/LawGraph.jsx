@@ -6,12 +6,11 @@
 
 import { useEffect, useRef, useCallback, useState } from "react";
 import cytoscape from "cytoscape";
-import coseBilkent from "cytoscape-cose-bilkent";
 import { API_BASE } from "../api.js";
 import { saveToCache, loadFromCache, clearCache, getCacheInfo } from "../cache.js";
 import "./LawGraph.css";
 
-cytoscape.use(coseBilkent);
+// cose jest wbudowany w cytoscape — nie potrzeba plugina
 
 const CY_STYLE = [
   {
@@ -85,25 +84,34 @@ const CY_STYLE = [
   { selector: "edge.faded",               style: { "opacity": 0.08 } },
 ];
 
-const LAYOUT = {
-  name: "cose-bilkent",
-  quality: "default",
-  animate: true,
-  animationDuration: 800,
-  nodeRepulsion: 4500,
-  idealEdgeLength: 100,
-  edgeElasticity: 0.45,
-  nestingFactor: 0.1,
-  gravity: 0.25,
-  numIter: 2500,
-  tile: true,
-  tilingPaddingVertical: 10,
-  tilingPaddingHorizontal: 10,
-  gravityRangeCompound: 1.5,
-  gravityCompound: 1.0,
-  gravityRange: 3.8,
-  initialEnergyOnIncremental: 0.5,
+// Szybki layout (jak w poland-legal-links) — cose zamiast cose-bilkent
+// cose-bilkent z numIter=2500 blokuje główny wątek przeglądarki na ~3s przy 200+ węzłach
+const LAYOUT_FAST = {
+  name: "cose",
+  animate: false,          // bez animacji = 5-10x szybciej
+  nodeRepulsion: 15000,
+  idealEdgeLength: 150,
+  gravity: 0.15,
+  padding: 50,
+  randomize: false,
+  componentSpacing: 80,
+  nodeOverlap: 20,
 };
+
+// Ładny layout z animacją (tylko dla małych grafów < 100 węzłów)
+const LAYOUT_ANIMATED = {
+  name: "cose",
+  animate: true,
+  animationDuration: 600,
+  nodeRepulsion: 15000,
+  idealEdgeLength: 150,
+  gravity: 0.15,
+  padding: 50,
+};
+
+function pickLayout(nodeCount) {
+  return nodeCount > 80 ? LAYOUT_FAST : LAYOUT_ANIMATED;
+}
 
 export default function LawGraph({ filters, onSelectAct }) {
   const containerRef = useRef(null);
@@ -155,7 +163,7 @@ export default function LawGraph({ filters, onSelectAct }) {
       cy.add(elements);
 
       setCounts({ nodes: cy.nodes().length, edges: cy.edges().length });
-      cy.layout(LAYOUT).run();
+      cy.layout(pickLayout(cy.nodes().length)).run();
 
     } catch (e) {
       setError(e.message);
@@ -213,7 +221,7 @@ export default function LawGraph({ filters, onSelectAct }) {
   };
 
   const handleFitView   = () => cyRef.current?.fit(undefined, 40);
-  const handleRelayout  = () => cyRef.current?.layout(LAYOUT).run();
+  const handleRelayout  = () => cyRef.current?.layout(LAYOUT_ANIMATED).run();
 
   return (
     <div className="law-graph-wrapper">
