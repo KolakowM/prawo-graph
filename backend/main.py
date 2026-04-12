@@ -26,6 +26,36 @@ BASE_URL   = "https://api.sejm.gov.pl/eli"
 PUBLISHER  = "DU"
 REQ_DELAY  = 0.4
 
+# ── Singleton driver z connection poolem (zamiast get_driver() per query) ──
+_driver = None
+
+def get_driver():
+    global _driver
+    if _driver is None:
+        _driver = GraphDatabase.driver(
+            NEO4J_URI,
+            auth=(NEO4J_USER, NEO4J_PASS),
+            max_connection_pool_size=20,
+            connection_acquisition_timeout=30,
+        )
+    return _driver
+
+@app.on_event("startup")
+async def startup():
+    """Warm up Neo4j connection pool przy starcie."""
+    try:
+        get_driver().verify_connectivity()
+        print("Neo4j connected OK")
+    except Exception as e:
+        print(f"Neo4j connection warning: {e}")
+
+@app.on_event("shutdown")
+async def shutdown():
+    global _driver
+    if _driver:
+        _driver.close()
+        _driver = None
+
 FILTER_KEYWORDS = [
     "przedsiębiorc", "działalność gospodarcza", "swoboda działalności",
     "wolność gospodarcza", "prawo przedsiębiorców", "wilcz",
@@ -142,24 +172,19 @@ etl = EtlState()
 #  Neo4j helpers
 # ════════════════════════════════════════════════════════════════
 
-def get_driver():
-    return GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASS))
-
 def neo4j_query(cypher: str, params: dict = None) -> list:
-    d = get_driver()
-    try:
-        with d.session() as s:
-            return [dict(r) for r in s.run(cypher, params or {})]
-    finally:
-        d.close()
+    with get_driver().session() as s:
+        return [dict(r) for r in s.run(cypher, params or {})]
 
 def neo4j_run(cypher: str, params: dict = None):
-    d = get_driver()
-    try:
-        with d.session() as s:
+    with get_driver().session() as s:
+        s.run(cypher, params or {})
+
+def neo4j_run_batch(queries: list[tuple[str, dict]]):
+    """Wykonaj wiele operacji w jednej sesji (szybsze przy ETL)."""
+    with get_driver().session() as s:
+        for cypher, params in queries:
             s.run(cypher, params or {})
-    finally:
-        d.close()
 
 STATUS_COLOR = {
     "obowiązujący": "#22c55e", "uchylony": "#ef4444",
@@ -290,6 +315,72 @@ async def _api_get(client: httpx.AsyncClient, url: str):
             await asyncio.sleep(2)
     return None
 
+def _flush_acts(acts: list):
+    """Zapisz paczkę aktów jednym wywołaniem UNWIND (szybsze niż N x MERGE)."""
+    if not acts:
+        return
+    with get_driver().session() as s:
+        s.run("""
+            UNWIND $acts AS a
+            MERGE (n:Act {id: a.id})
+            SET n.publisher = a.publisher,
+                n.year      = a.year,
+                n.pos       = a.pos,
+                n.title     = a.title,
+                n.status    = a.status,
+                n.type      = a.type,
+                n.keywords  = a.keywords,
+                n.announced = a.announced
+        """, {"acts": acts})
+
+def _flush_refs(refs: list, saved_ids: set):
+    """Zapisz paczką relacji i stub-węzły dla aktów zewnętrznych."""
+    if not refs:
+        return
+    stubs = []
+    for from_id, to_id, _ in refs:
+        if to_id not in saved_ids:
+            parts = to_id.split("/")
+            if len(parts) == 3:
+                stubs.append({
+                    "id": to_id, "pub": parts[0],
+                    "yr": int(parts[1]), "pos": int(parts[2]),
+                    "title": f"[Zewnętrzny {to_id}]",
+                })
+                saved_ids.add(to_id)
+
+    if stubs:
+        with get_driver().session() as s:
+            s.run("""
+                UNWIND $stubs AS a
+                MERGE (n:Act {id: a.id})
+                SET n.publisher = a.pub,
+                    n.year      = a.yr,
+                    n.pos       = a.pos,
+                    n.title     = a.title,
+                    n.status    = 'EXTERNAL',
+                    n.type      = '',
+                    n.keywords  = [],
+                    n.announced = null
+            """, {"stubs": stubs})
+
+    # Grupuj relacje wg typu i zapisuj każdy typ jednym UNWIND
+    from collections import defaultdict
+    by_type = defaultdict(list)
+    for from_id, to_id, rtype in refs:
+        by_type[rtype].append({"f": from_id, "t": to_id})
+
+    with get_driver().session() as s:
+        for rtype, pairs in by_type.items():
+            try:
+                s.run(
+                    f"UNWIND $pairs AS p MATCH (a:Act {{id:p.f}}) MATCH (b:Act {{id:p.t}}) MERGE (a)-[:{rtype}]->(b)",
+                    {"pairs": pairs}
+                )
+            except Exception:
+                pass
+
+
 async def _run_etl_async(years: list):
     etl.reset()
     etl.running = True
@@ -358,8 +449,9 @@ async def _run_etl_async(years: list):
             etl.acts_total = len(matched)
             etl.add_log("📥 Faza 2: Pobieranie szczegółów i referencji…")
 
-            all_refs  = []
-            saved_ids = set()
+            all_refs    = []
+            saved_ids   = set()
+            pending_acts = []
 
             for i, item in enumerate(matched, 1):
                 yr, pos = item["year"], item["pos"]
@@ -368,19 +460,20 @@ async def _run_etl_async(years: list):
 
                 details = await _api_get(client, f"{BASE_URL}/acts/{PUBLISHER}/{yr}/{pos}")
                 p = details or item["raw"]
-                neo4j_run("""
-                    MERGE (a:Act {id:$id})
-                    SET a.publisher=$publisher,a.year=$year,a.pos=$pos,
-                        a.title=$title,a.status=$status,a.type=$type,
-                        a.keywords=$keywords,a.announced=$announced
-                """, {
+                act_props = {
                     "id": act_id, "publisher": PUBLISHER, "year": yr, "pos": pos,
                     "title": p.get("title",""), "status": p.get("status","UNKNOWN"),
                     "type": p.get("type",""), "keywords": p.get("keywords") or [],
                     "announced": p.get("announcementDate"),
-                })
+                }
+                pending_acts.append(act_props)
                 saved_ids.add(act_id)
                 etl.acts_saved += 1
+
+                # Zapisuj w paczkach po 25 (mniej round-tripów do Neo4j)
+                if len(pending_acts) >= 25:
+                    _flush_acts(pending_acts)
+                    pending_acts.clear()
 
                 refs_data = await _api_get(client, f"{BASE_URL}/acts/{PUBLISHER}/{yr}/{pos}/references")
                 # API zwraca słownik: {"Akty zmieniające": [{act: {...}}, ...], ...}
@@ -417,35 +510,19 @@ async def _run_etl_async(years: list):
                             etl.refs_total += 1
 
                 if i % 10 == 0 or i == len(matched):
+                    if pending_acts:
+                        _flush_acts(pending_acts)
+                        pending_acts.clear()
                     etl.add_log(f"  [{i}/{len(matched)}] zapisano {etl.acts_saved}, ref: {etl.refs_total}")
 
             # Faza 3: relacje
             etl.phase = "saving"
             etl.add_log(f"🔗 Faza 3: Zapisywanie {len(all_refs)} relacji…")
 
-            for from_id, to_id, rtype in all_refs:
-                if to_id not in saved_ids:
-                    parts = to_id.split("/")
-                    if len(parts) == 3:
-                        neo4j_run("""
-                            MERGE (a:Act {id:$id})
-                            SET a.publisher=$pub,a.year=$yr,a.pos=$pos,
-                                a.title=$title,a.status='EXTERNAL',
-                                a.type='',a.keywords=[],a.announced=null
-                        """, {
-                            "id": to_id, "pub": parts[0],
-                            "yr": int(parts[1]), "pos": int(parts[2]),
-                            "title": f"[Zewnętrzny {to_id}]",
-                        })
-                        saved_ids.add(to_id)
-                try:
-                    neo4j_run(
-                        f"MATCH (a:Act {{id:$f}}) MATCH (b:Act {{id:$t}}) MERGE (a)-[:{rtype}]->(b)",
-                        {"f": from_id, "t": to_id}
-                    )
-                except Exception:
-                    pass
-                etl.refs_saved += 1
+            # Zapisz wszystkie relacje w paczkach (znacznie szybsze)
+            _flush_refs(all_refs, saved_ids)
+            etl.refs_saved = len(all_refs)
+            etl.add_log(f"  Zapisano {etl.refs_saved} relacji")
 
         etl.phase = "done"
         etl.finished_at = time.time()
