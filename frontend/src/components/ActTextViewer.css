@@ -1,0 +1,254 @@
+/* ════════════════════════════════════════════
+   ActTextViewer — czytnik aktów prawnych
+════════════════════════════════════════════ */
+
+.atv-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+  z-index: 100;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+}
+
+.atv-panel {
+  width: min(820px, 100%);
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  animation: slideIn 0.2s ease;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(40px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+/* ── Header ──────────────────────────── */
+.atv-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+
+.atv-nav { display: flex; gap: 4px; }
+
+.atv-nav-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.atv-nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.atv-nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.atv-title-block { flex: 1; min-width: 0; }
+
+.atv-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atv-subtitle { font-size: 11px; margin-top: 2px; }
+
+.atv-breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+
+.atv-crumb-btn {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 2px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.atv-crumb-btn:hover { text-decoration: underline; }
+
+.atv-arrow { color: var(--text-muted); font-size: 10px; }
+
+.atv-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+
+.atv-ext-link {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface);
+  transition: all 0.15s;
+}
+.atv-ext-link:hover { border-color: var(--accent); color: var(--accent); }
+
+.atv-close-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 14px;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.atv-close-btn:hover { border-color: var(--red); color: var(--red); }
+
+/* ── Body ────────────────────────────── */
+.atv-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+  position: relative;
+}
+
+/* ── Loading ─────────────────────────── */
+.atv-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Error ───────────────────────────── */
+.atv-error {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin: 20px;
+  padding: 16px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 6px;
+  color: var(--red);
+  font-size: 13px;
+}
+.atv-error-icon { font-size: 20px; flex-shrink: 0; }
+.atv-error-detail { font-family: var(--font-mono); font-size: 11px; margin-top: 4px; opacity: 0.7; }
+.atv-error-hint { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+
+/* ── Hint bar ────────────────────────── */
+.atv-hint {
+  position: sticky;
+  top: 0;
+  background: rgba(13, 15, 20, 0.95);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 20px;
+  font-size: 11px;
+  color: var(--text-muted);
+  z-index: 10;
+  backdrop-filter: blur(4px);
+}
+
+.ref-link-demo {
+  display: inline-block;
+  background: rgba(245, 158, 11, 0.15);
+  border-bottom: 2px solid var(--accent);
+  color: var(--accent);
+  padding: 0 3px;
+  border-radius: 2px 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+/* ── Treść aktu ──────────────────────── */
+.atv-content {
+  padding: 24px 32px 48px;
+  font-family: "Times New Roman", Georgia, serif;
+  font-size: 14px;
+  line-height: 1.9;
+  color: var(--text);
+  max-width: 760px;
+}
+
+/* Styl dla tekstu prawnego */
+.atv-content p, .atv-content div {
+  margin-bottom: 0.5em;
+}
+
+.atv-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+  font-size: 13px;
+}
+
+.atv-content td, .atv-content th {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  vertical-align: top;
+}
+
+.atv-content h1, .atv-content h2, .atv-content h3 {
+  font-family: var(--font-body);
+  color: var(--text);
+  margin: 1.5em 0 0.5em;
+}
+
+/* ── Klikalne odesłania do Dz. U. ─────── */
+.ref-link {
+  background: rgba(245, 158, 11, 0.12);
+  border-bottom: 2px solid rgba(245, 158, 11, 0.6);
+  color: #f59e0b;
+  cursor: pointer;
+  padding: 0 2px;
+  border-radius: 2px 2px 0 0;
+  transition: all 0.15s;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.ref-link:hover {
+  background: rgba(245, 158, 11, 0.25);
+  border-bottom-color: var(--accent);
+  color: var(--accent);
+}
+
+.ref-link::after {
+  content: " ↗";
+  font-size: 0.75em;
+  opacity: 0.6;
+  font-family: var(--font-mono);
+}
