@@ -154,3 +154,39 @@ DODANO Z ZEWNĘTRZNEGO PROJEKTU:
   - Lepszy EDGE_TYPE_MAP z polskimi etykietami
   - Paginacja identyczna jak w poland-legal-links (limit=100, offset)
   - Diagnoza endpointu: /api/etl/diagnose?year=2023
+
+[2026-04-11] v0.3.0 — Optymalizacja wydajności (analiza poland-legal-links)
+-----------------------------------------------------------------------------
+DIAGNOZA: Porównanie z zewnętrznym projektem ujawniło 4 przyczyny wolnego działania.
+
+PROBLEM 1 — Nowe połączenie Neo4j per każde query:
+  Było:   get_driver() tworzyło new GraphDatabase.driver() → driver.close()
+          przy każdym /api/graph, /api/stats, /api/keywords itd.
+          Koszt: ~200-500ms overhead per żądanie
+  Teraz:  Singleton z pula połączeń (max_connection_pool_size=20)
+          Warm-up przy starcie aplikacji (verify_connectivity)
+          Sesje z puli — brak overhead tworzenia połączenia
+
+PROBLEM 2 — Zapis do Neo4j jeden akt na raz w ETL:
+  Było:   N x neo4j_run(MERGE ...) — N round-tripów do bazy
+          300 aktów = 300 oddzielnych sesji Neo4j
+  Teraz:  UNWIND $acts AS a MERGE... — jedna operacja na paczkę 25
+          Czas ETL szacunkowo 5-10x krótszy
+
+PROBLEM 3 — Relacje zapisywane jedną na raz:
+  Było:   for each ref: neo4j_run(MERGE relation)
+  Teraz:  _flush_refs() grupuje po typie relacji i wysyła UNWIND
+          Jeden round-trip per typ relacji (CHANGES/REPEALS/EXECUTES...)
+
+PROBLEM 4 — cose-bilkent layout z numIter=2500 blokował przeglądarkę:
+  Było:   cose-bilkent, numIter=2500, animate=true
+          Blokował główny wątek na ~3-5s przy 200+ węzłach
+  Teraz:  Wbudowany cose (bez plugina), animate=false dla >80 węzłów
+          pickLayout(n) — animacja tylko dla małych grafów (<80 węzłów)
+          Usunięto dependency: cytoscape-cose-bilkent
+
+DODANO:
+  - startup/shutdown lifecycle hooks w FastAPI
+  - _flush_acts(list) — batch UNWIND dla węzłów
+  - _flush_refs(list, set) — batch UNWIND dla relacji per typ
+  - pickLayout(nodeCount) — adaptacyjny wybór szybkiego vs animowanego layoutu
